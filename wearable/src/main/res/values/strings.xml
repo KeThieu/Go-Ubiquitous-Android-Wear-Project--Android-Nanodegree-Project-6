@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Wearable</string>
+    <string name="my_digital_name">My Digital</string>
+
+    <!-- This string path is used for DataItems using the DataLayer API between mobile and wearable -->
+    <string name="data_path" translatable="false">/weather</string>
+</resources>
