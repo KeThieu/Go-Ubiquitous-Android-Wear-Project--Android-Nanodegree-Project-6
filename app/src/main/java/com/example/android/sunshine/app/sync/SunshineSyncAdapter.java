@@ -46,6 +46,7 @@ import com.google.android.gms.wearable.Asset;
 import com.google.android.gms.wearable.DataApi;
 import com.google.android.gms.wearable.PutDataMapRequest;
 import com.google.android.gms.wearable.PutDataRequest;
+import com.google.android.gms.wearable.DataApi.DataItemResult;
 import com.google.android.gms.wearable.Wearable;
 
 import org.json.JSONArray;
@@ -72,6 +73,7 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter
     // Interval at which to sync with the weather, in seconds.
     // 60 seconds (1 minute) * 180 = 3 hours
     public static final int SYNC_INTERVAL = 60 * 180;
+
     public static final int SYNC_FLEXTIME = SYNC_INTERVAL/3;
     private static final long DAY_IN_MILLIS = 1000 * 60 * 60 * 24;
     private static final int WEATHER_NOTIFICATION_ID = 3004;
@@ -204,10 +206,10 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter
                     Log.e(LOG_TAG, "Error closing stream", e);
                 }
             }
-        }
 
-        if(mGoogleApiClient != null && mGoogleApiClient.isConnected()) {
-            mGoogleApiClient.disconnect();
+//            if(mGoogleApiClient != null && mGoogleApiClient.isConnected()) {
+//                mGoogleApiClient.disconnect();
+//            }
         }
 
         return;
@@ -699,27 +701,31 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter
             Bitmap bitmap = BitmapFactory.decodeResource(getContext().getResources(), artIcon);
             Asset toDataMapAsset = toAsset(bitmap);
 
-            PutDataMapRequest sendRequest = PutDataMapRequest.create("/weather-path");
-            sendRequest.getDataMap().putDouble(getContext().getString(R.string.high_key), high);
-            sendRequest.getDataMap().putDouble(getContext().getString(R.string.low_key), low);
+            PutDataMapRequest sendRequest = PutDataMapRequest.create(getContext().getString(R.string.data_path));
+            sendRequest.getDataMap().putString(getContext().getString(R.string.high_key), Utility.formatTemperature(getContext(), high));
+            sendRequest.getDataMap().putString(getContext().getString(R.string.low_key), Utility.formatTemperature(getContext(), low));
             sendRequest.getDataMap().putAsset(getContext().getString(R.string.asset_key), toDataMapAsset);
 
-            PutDataRequest sendDataRequest = sendRequest.asPutDataRequest();
-            sendDataRequest.setUrgent();
+            PutDataRequest sendDataRequest = sendRequest.asPutDataRequest().setUrgent();
 
             Wearable.DataApi.putDataItem(mGoogleApiClient, sendDataRequest)
-                    .setResultCallback(new ResultCallback<DataApi.DataItemResult>() {
+                    .setResultCallback(new ResultCallback<DataItemResult>() {
                         @Override
-                        public void onResult(DataApi.DataItemResult dataItemResult) {
+                        public void onResult(DataItemResult dataItemResult) {
                             if(dataItemResult.getStatus().isSuccess()) {
-                                Log.v(LOG_TAG, "PutDataRequest was successful. " +
+                                Log.d(LOG_TAG, "PutDataRequest was successful. " +
                                         "Status Code : " + dataItemResult.getStatus().getStatusCode());
                             } else {
-                                Log.v(LOG_TAG, "Uh-oh, PutDataRequest wasn't successful. " +
+                                Log.d(LOG_TAG, "Uh-oh, PutDataRequest wasn't successful. " +
                                         "Status Code : " + dataItemResult.getStatus().getStatusCode());
+                            }
+                            if(mGoogleApiClient != null && mGoogleApiClient.isConnected()) {
+                                mGoogleApiClient.disconnect();
                             }
                         }
                     });
+
+            cursor.close();
         }
     }
 
@@ -735,7 +741,7 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter
         ByteArrayOutputStream byteStream = null;
         try {
             byteStream = new ByteArrayOutputStream();
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, byteStream);
+            bitmap.compress(Bitmap.CompressFormat.PNG, 10, byteStream);
             return Asset.createFromBytes(byteStream.toByteArray());
         } finally {
             if (null != byteStream) {
