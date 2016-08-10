@@ -40,7 +40,7 @@ public class WearableRequestListenerService extends WearableListenerService {
             Log.v(LOG_TAG, "we received a message from the wearable to fetch data and send it over");
 
             Context context = WearableRequestListenerService.this.getApplicationContext();
-            SunshineSyncAdapter.initializeSyncAdapter(context);
+            SunshineSyncAdapter.syncImmediately(context);
         }
     }
 }

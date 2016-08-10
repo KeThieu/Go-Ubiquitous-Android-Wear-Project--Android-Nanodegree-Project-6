@@ -705,6 +705,8 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter
             sendRequest.getDataMap().putString(getContext().getString(R.string.high_key), Utility.formatTemperature(getContext(), high));
             sendRequest.getDataMap().putString(getContext().getString(R.string.low_key), Utility.formatTemperature(getContext(), low));
             sendRequest.getDataMap().putAsset(getContext().getString(R.string.asset_key), toDataMapAsset);
+            //The following is an extra item that ensures that dataChanged on the watch side always gets called
+            sendRequest.getDataMap().putLong(getContext().getString(R.string.time_key), System.currentTimeMillis());
 
             PutDataRequest sendDataRequest = sendRequest.asPutDataRequest().setUrgent();
 

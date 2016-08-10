@@ -45,6 +45,8 @@ import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.ResultCallback;
 import com.google.android.gms.wearable.Asset;
+import com.google.android.gms.wearable.CapabilityApi;
+import com.google.android.gms.wearable.CapabilityInfo;
 import com.google.android.gms.wearable.DataApi;
 import com.google.android.gms.wearable.DataEvent;
 import com.google.android.gms.wearable.DataEventBuffer;
@@ -52,6 +54,7 @@ import com.google.android.gms.wearable.DataMapItem;
 import com.google.android.gms.wearable.MessageApi;
 import com.google.android.gms.wearable.Node;
 import com.google.android.gms.wearable.NodeApi;
+import com.google.android.gms.wearable.PutDataRequest;
 import com.google.android.gms.wearable.Wearable;
 
 import java.io.InputStream;
@@ -61,6 +64,7 @@ import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
+import java.util.Set;
 import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
 
@@ -152,8 +156,8 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
         String mAmString;
         String mPmString;
 
-        String mNodeId;
-        NodeApi.NodeListener mNodeListener;
+        String mBestNodeId;
+        String capabilityName;
 
         Time mTime;
         final BroadcastReceiver mTimeZoneReceiver = new BroadcastReceiver() {
@@ -174,6 +178,15 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
                 .addOnConnectionFailedListener(this)
                 .addApi(Wearable.API)
                 .build();
+
+        //Capability Listener
+        CapabilityApi.CapabilityListener requestCapabilityListener = new CapabilityApi.CapabilityListener() {
+            @Override
+            public void onCapabilityChanged(CapabilityInfo capabilityInfo) {
+                Log.v(LOG_TAG, "Capability Changed!");
+                updateCapability(capabilityInfo);
+            }
+        };
         /**
          * Whether the display supports fewer bits for each color in ambient mode. When true, we
          * disable anti-aliasing in ambient mode.
@@ -217,28 +230,13 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             mLowTemp = "00";
 
             mDate = new Date();
+            capabilityName = "mobile_request"; //same name as the capability defined on the handheld
+            mBestNodeId = null;
             initFormats();
-
-            getCapableNodes();
 
             mTime = new Time();
         }
 
-        public void getCapableNodes() {
-            mNodeListener = new NodeApi.NodeListener() {
-
-                @Override
-                public void onPeerConnected(Node node) {
-                    mNodeId = node.getId();
-                    Log.v(LOG_TAG, "Node connected");
-                }
-
-                @Override
-                public void onPeerDisconnected(Node node) {
-                    Log.v(LOG_TAG, "Node Disconnected");
-                }
-            };
-        }
 
         @Override
         public void onDestroy() {
@@ -266,10 +264,6 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
                 mCalendar.setTimeZone(TimeZone.getDefault());
                 initFormats();
 
-                //send message to request data
-                getCapableNodes();
-                requestDataMessageTask();
-
                 // Update time zone in case it changed while we weren't visible.
                 mTime.clear(TimeZone.getDefault().getID());
                 mTime.setToNow();
@@ -288,20 +282,6 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             updateTimer();
         }
 
-        private void requestDataMessageTask() {
-            Wearable.MessageApi.sendMessage(mGoogleApiClient, mNodeId, requestDataPath, null)
-                    .setResultCallback(new ResultCallback<MessageApi.SendMessageResult>() {
-                @Override
-                public void onResult(@NonNull MessageApi.SendMessageResult sendMessageResult) {
-                    if(sendMessageResult.getStatus().isSuccess()) {
-                        Log.v(LOG_TAG, "Requesting Data Message has been sent");
-                    } else {
-                        Log.v(LOG_TAG, "Uh oh, something went wrong when trying to send request data message " +
-                                sendMessageResult.getStatus().getStatusCode());
-                    }
-                }
-            });
-        }
 
         private void registerReceiver() {
             if (mRegisteredTimeZoneReceiver) {
@@ -421,9 +401,10 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             Time_X += mTextPaint.measureText(COLON_STRING);
 
             String minutes = formatTwoDigitNumber(mCalendar.get(Calendar.MINUTE));
+            String amPmString = getAmPmString(mCalendar.get(Calendar.AM_PM));
             canvas.drawText(minutes, Time_X, Time_Y, mTextPaint);
             Time_X += mTextPaint.measureText(minutes) + mTextPaint.measureText(COLON_STRING);
-            canvas.drawText(getAmPmString(mCalendar.get(Calendar.AM_PM)), Time_X, Time_Y, mAmPmPaint);
+            canvas.drawText(amPmString, Time_X, Time_Y, mAmPmPaint);
 
             float Date_X = mXOffset + mDateMargin;
             float Date_Y = mYOffset + mLineHeight;
@@ -435,7 +416,7 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
 
 
             float weather_X = mXOffset;
-            float weather_Y = mYOffset + mDateTextPaint.measureText(dayOfWeek);
+            float weather_Y = mYOffset + mDateTextPaint.measureText(amPmString);
 
             if(mIconBitmap != null) {
                 Rect rect = new Rect(
@@ -573,7 +554,11 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             Log.v(LOG_TAG + " GoogleApiClient", "Connection succeed.");
 
             //connect a listener for the DataLayerApi
-            Wearable.DataApi.addListener(mGoogleApiClient, this);
+            Wearable.DataApi.addListener(mGoogleApiClient, Engine.this);
+
+            //Capability Listener
+            setupNodes();
+            Wearable.CapabilityApi.addCapabilityListener(mGoogleApiClient, requestCapabilityListener, capabilityName);
         }
 
         @Override
@@ -586,6 +571,68 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
         public void onConnectionFailed(ConnectionResult result) {
             //called when connection failed
             Log.v(LOG_TAG + " GoogleApiClient", "Connection failed. Reason : " + result.toString());
+        }
+
+        public void setupNodes() {
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    Wearable.CapabilityApi.getCapability(
+                            mGoogleApiClient, capabilityName,
+                            CapabilityApi.FILTER_REACHABLE)
+                            .setResultCallback(new ResultCallback<CapabilityApi.GetCapabilityResult>() {
+                                @Override
+                                public void onResult(@NonNull CapabilityApi.GetCapabilityResult getCapabilityResult) {
+                                    if(getCapabilityResult.getStatus().isSuccess()) {
+                                        Log.v(LOG_TAG, "Capability detected");
+                                        updateCapability(getCapabilityResult.getCapability());
+                                    } else {
+                                        Log.v(LOG_TAG, "Unable to detect a Capability");
+                                    }
+                                }
+                            });
+                }
+            }).start();
+        }
+
+        public void updateCapability(CapabilityInfo capabilityInfo) {
+            Set<Node> capableNodes = capabilityInfo.getNodes();
+
+            mBestNodeId = findBestNodeId(capableNodes);
+
+            //send message here
+            requestWeatherData();
+        }
+
+        public String findBestNodeId(Set<Node> nodes) {
+            String bestNodeId = null;
+            for(Node node : nodes) {
+                if(node.isNearby()) {
+                    return node.getId();
+                }
+                bestNodeId = node.getId();
+            }
+
+            return bestNodeId;
+        }
+
+        public void requestWeatherData() {
+            if(mBestNodeId != null) {
+                Wearable.MessageApi.sendMessage(mGoogleApiClient, mBestNodeId, requestDataPath, null)
+                        .setResultCallback(new ResultCallback<MessageApi.SendMessageResult>() {
+                            @Override
+                            public void onResult(@NonNull MessageApi.SendMessageResult sendMessageResult) {
+                                if (sendMessageResult.getStatus().isSuccess()) {
+                                    Log.v(LOG_TAG, "Send Message success! " + sendMessageResult.getStatus().getStatusCode());
+                                } else {
+                                    Log.v(LOG_TAG, "Uh-oh, messaged sending was unsuccessful. "
+                                            + sendMessageResult.getStatus().getStatusCode());
+                                }
+                            }
+                        });
+            } else {
+                Log.v(LOG_TAG, "Apparently, there are no capable nodes nearby or available to connect to.");
+            }
         }
     }
 }
